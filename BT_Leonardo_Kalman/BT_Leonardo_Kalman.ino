@@ -10,9 +10,10 @@
 SoftwareSerial BT_RCV(10, 11);
 
 int vx, vy;
+int allMouse;
 int stateLeft, stateRight;
-int mouseOn;
-int mouseOn2;
+int mousePressed;
+int mouseState;
 int endint;
 
 void dealMouse(int mouse, int state);
@@ -22,13 +23,14 @@ void setup() {
     Serial.begin(115200); 
     BT_RCV.begin(9600);
     Mouse.begin();
-    mouseOn = 1;
+    mouseState = 1;
 }
 
 
 void loop() {
     vx = 0;
     vy = 0;
+    mousePressed = 0;
     if (BT_RCV.available()) {
         vx = BT_RCV.read();
         Serial.print(vx);
@@ -40,22 +42,11 @@ void loop() {
         Serial.print('\t');
         delay(2);
 
-        stateLeft = BT_RCV.read();
+        allMouse = BT_RCV.read();
         Serial.print(stateLeft);
         Serial.print('\t');
         delay(2);
 
-        stateRight = BT_RCV.read();
-        Serial.print(stateRight);
-        Serial.print('\t');
-        delay(2);
-
-        mouseOn2 = BT_RCV.read();
-        mouseOn |= mouseOn2;
-        Serial.print(mouseOn);
-        Serial.print('\t');
-        delay(2);
-        
         endint = BT_RCV.read();
         Serial.print(endint);
         Serial.print('\t');
@@ -70,7 +61,12 @@ void loop() {
         }
     }
     
-    if (mouseOn){
+    stateLeft = allMouse / 100;
+    stateRight = allMouse / 10 % 10;
+    mousePressed = allMouse % 10;
+    mouseState |= mousePressed;
+    
+    if (mouseState){
         Mouse.move(vx, vy);
         dealMouse(1, stateLeft);
         dealMouse(2, stateRight);
@@ -82,8 +78,8 @@ void loop() {
 
 void dealMouse(int mouse, int state) {
     switch (state) {
-        case -2: Mouse.click(mouse); break;
-        case -3: Mouse.press(mouse); break;
+        case 1: Mouse.click(mouse); break;
+        case 2: Mouse.press(mouse); break;
         case 0: if (Mouse.isPressed(mouse)) Mouse.release(mouse);
         default: break;
     }
