@@ -86,7 +86,7 @@ void loop() {
     int vx = (int)(gyroZrate / -1.5);
     int vy = (int)(gyroYrate / 2.5);
 
-    BT_SEND.write(-2);
+    BT_SEND.write(-2);  // start key
     delay(2);
     BT_SEND.write(vx);
     delay(2);
@@ -98,7 +98,7 @@ void loop() {
     delay(2);
     BT_SEND.write(mouseOn);
     delay(2);
-    BT_SEND.write(-1);
+    BT_SEND.write(-1);  // end key
     delay(2);
 
 #if 1
