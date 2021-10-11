@@ -1,29 +1,38 @@
+/*
+ * 开发板：Arduino Nano, 处理数据，仅向蓝牙发送位移信息。鼠标状态。
+ * 
+ * 2021/10/3 --------- 优化鼠标状态检定（支持长按和短按）
+ * 
+ * 2021/10/5 --------- 优化双击事件
+ */
+
+
 #include <Wire.h>
 #include <SoftwareSerial.h>
 #include <Kalman.h>
 
+#define buttonLeft 2  // D2引脚
+#define buttonRight 3 // D3引脚
+#define buttonMouse 4 // D4引脚
 
 Kalman kalmanX;
 Kalman kalmanY;
 
 double gyroX, gyroY, gyroZ;  // The angular acceleration on each axis (in the unit of the gyro).
-int16_t tempRaw;
-
-uint32_t timer;
 uint8_t i2cData[14]; // Buffer for I2C data
-
+static double statimer = 0;
 int vx, vy;
-int buttonLeft = 2;  // D2引脚
-int buttonRight = 3; // D3引脚
-int buttonMouse = 4; // D4引脚
-int stateLeft;  // 1 for press, 0 for release
-int stateRight; // 1 for press, 0 for release
-int stateMouse; // 1 for press, 0 for release
-int mouseOn;    // 1 for on, 1 for off
+int Start = -1;
+int End = -2;
+int stateLeft = 0;  // 1 for press, 0 for release, 2 for long release
+int stateRight = 0; // 1 for press, 0 for release
+int stateMouse = 0; // 1 for press, 0 for release
+int mouseOn;    // 1 for on, 0 for off
 
 SoftwareSerial BT_SEND(10, 11);
 
-int get_key(int BUTTON);  // 短按返回1， 长按返回2，否则返回0
+int get_key(int BUTTON, int state = 0);  // 短按返回1，双击返回2，否则返回0
+int get_leftkey(int state = 0);  // 按下返回1，单击返回2，双击返回3，长按返回4，否则返回0
 
 void setup() {
     mouseOn = true;
@@ -60,27 +69,35 @@ void setup() {
 void loop() {
    /* Update all the values */
     while (i2cRead(0x3B, i2cData, 14));
-    gyroX = (int16_t)((i2cData[8] << 8) | i2cData[9]);
     gyroY = (int16_t)((i2cData[10] << 8) | i2cData[11]);
     gyroZ = (int16_t)((i2cData[12] << 8) | i2cData[13]);
 
-    double gyroXrate = gyroX / 131.0; // Convert to deg/s
     double gyroYrate = gyroY / 131.0; // Convert to deg/s
     double gyroZrate = gyroZ / 131.0; // Convert to deg/s
 
-    stateLeft = get_key(buttonLeft);
-    stateRight = get_key(buttonRight);
+    if (mouseOn) {
+        stateLeft = get_leftkey(stateLeft);
+        stateRight = get_key(buttonRight);
+    }
     stateMouse = get_key(buttonMouse);
     if (stateMouse == 1)
-        mouseOn |= 1;
+        mouseOn ^= 1;
 
-    int vx = gyroZrate / -5;
-    int vy = gyroYrate / 6;
-    
+    int vx = (int)(gyroZrate / -1.5);
+    int vy = (int)(gyroYrate / 2.5);
+
+    BT_SEND.write(-2);
+    delay(2);
     BT_SEND.write(vx);
+    delay(2);
     BT_SEND.write(vy);
-    BT_SEND.write(stateLeft*100 + stateRight*10 + mouseOn);
-    
+    delay(2);
+    BT_SEND.write(stateLeft);
+    delay(2);
+    BT_SEND.write(stateRight);
+    delay(2);
+    BT_SEND.write(mouseOn);
+    delay(2);
     BT_SEND.write(-1);
     delay(2);
 
@@ -88,6 +105,10 @@ void loop() {
     Serial.print(mouseOn ? "Mouse is on" : "Mouse is off"); Serial.print("\t");
     Serial.print(gyroY / 131.0); Serial.print("\t");
     Serial.print(gyroZ / 131.0); Serial.print("\t");
+    Serial.print(stateLeft); Serial.print("\t");
+    Serial.print(stateRight); Serial.print("\t");
+    Serial.print(stateMouse); Serial.print("\t");
+    Serial.print(mouseOn);Serial.print("\t");
 
     Serial.print("\t");
 #endif
@@ -97,15 +118,53 @@ void loop() {
 
 }
 
-
-int get_key(int BUTTON)
-{
+int get_key(int BUTTON, int state = 0) {
     int tt = 0;
     if (digitalRead(BUTTON) == LOW) {
+        if (state == 2) return 2;
         delay(50);
-        while (digitalRead(BUTTON) == LOW) tt++;
+        while (digitalRead(BUTTON) == LOW) {
+            tt++;
+            delay(5);
+            if (tt > 50) return 2;
+        }
     }
-    if(tt != 0 && tt < 30)   return 1;
-    if(tt > 150)  return 2;
+    if (tt != 0 && tt < 30) return 1;
     return 0;
+}
+
+int get_leftkey(int state = 0)
+{
+    
+    int tt = 0;
+    if (digitalRead(buttonLeft) == LOW) {
+        if (state == 4) return 4;
+        delay(50);
+        while (digitalRead(buttonLeft) == LOW) {
+            tt++;
+            delay(5);
+            if (tt > 50) return 4;
+        }
+    }
+
+    if (tt == 0) {
+        double temtimer = micros();
+//        Serial.print(temtimer); Serial.print("\t");
+        double dtime = (double)(micros() - statimer) / 1000000;
+        Serial.print("距上次时间... "); Serial.print(dtime); Serial.print("\t");
+        if (state == 1) {
+            if (dtime > 0.20) return 2;
+            else return 1;
+        }
+        return 0;
+    }
+    if (tt != 0 && tt < 30) {
+        double dtime = (double)(micros() - statimer) / 1000000;
+        Serial.print("间隔时间. . "); Serial.print(dtime); Serial.print("\t");
+        statimer = micros();
+        Serial.print(statimer); Serial.print("\t");
+        if (dtime < 0.20) return 3;
+        else return 1;
+    }
+    
 }
