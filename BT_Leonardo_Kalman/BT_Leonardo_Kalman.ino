@@ -1,26 +1,28 @@
 /*
- * 蓝牙从机-Leonardo, 接收原始数据
- * 
+ * 开发板：Arduino Leonardo,
  * 2021/7/2 ---------- 仅接收两个数据，控制鼠标的移动
+ * 
+ * 2021/10/3 --------- 优化数据处理函数
+ * 
+ * 2021/10/5 --------- 特殊处理双击事件
  */
 
 #include <Mouse.h>
 #include <SoftwareSerial.h>
+#define dataNum 5
 
 SoftwareSerial BT_RCV(10, 11);
+int Data[dataNum + 2];  // {Start, vx, vy, stateLeft, stateRight, mouseOn, End}
 
 int vx, vy;
-int allMouse;
-int stateLeft, stateRight;
-int mousePressed;
+int stateLeft, stateRight, mouseOn;
 int mouseState;
-int endint;
 
 void dealMouse(int mouse, int state);
-
+void dealLeftMouse(int state);
 
 void setup() {
-    Serial.begin(115200); 
+    Serial.begin(9600); 
     BT_RCV.begin(9600);
     Mouse.begin();
     mouseState = 1;
@@ -28,59 +30,62 @@ void setup() {
 
 
 void loop() {
-    vx = 0;
-    vy = 0;
-    mousePressed = 0;
-    if (BT_RCV.available()) {
-        vx = BT_RCV.read();
-        Serial.print(vx);
-        Serial.print('\t');
-        delay(2);
-
-        vy = BT_RCV.read();
-        Serial.print(vy);
-        Serial.print('\t');
-        delay(2);
-
-        allMouse = BT_RCV.read();
-        Serial.print(stateLeft);
-        Serial.print('\t');
-        delay(2);
-
-        endint = BT_RCV.read();
-        Serial.print(endint);
-        Serial.print('\t');
-        delay(2);
+    while (BT_RCV.available()) {
+        int x = 1;
         
-        if (endint != 255) {
-            while (BT_RCV.available()) {
-                endint = BT_RCV.read();
-                if (endint == 255)
-                    break;
-            }
+        Data[0] = BT_RCV.read();
+        while (Data[0] != 254) {
+            Data[0] = BT_RCV.read();
+        } Serial.print(Data[0]); Serial.print('\t');
+        
+        while (x <= dataNum) {
+            Data[x] = BT_RCV.read();
+            if (Data[x] == -1)
+                continue;
+            Serial.print(Data[x]); Serial.print('\t');
+            x++;
         }
+        
+        Data[dataNum + 1] = BT_RCV.read();
+        while (Data[dataNum + 1] != 255) {
+            Data[dataNum + 1] = BT_RCV.read();
+        } Serial.print(Data[dataNum + 1]); Serial.print('\t');
+        
+        if (BT_RCV.overflow()) {
+        Serial.println("SoftwareSerial overflow!");
+        }
+
+
+        if (Data[dataNum] == 1){
+            Mouse.move(Data[1], Data[2]);
+            dealLeftMouse(Data[3]);
+            dealMouse(2, Data[4]);
+        }
+        Serial.print("\r\n");
     }
     
-    stateLeft = allMouse / 100;
-    stateRight = allMouse / 10 % 10;
-    mousePressed = allMouse % 10;
-    mouseState |= mousePressed;
-    
-    if (mouseState){
-        Mouse.move(vx, vy);
-        dealMouse(1, stateLeft);
-        dealMouse(2, stateRight);
-    }
-    
-    Serial.print("\r\n");
 }
 
 
 void dealMouse(int mouse, int state) {
     switch (state) {
         case 1: Mouse.click(mouse); break;
-        case 2: Mouse.press(mouse); break;
+        case 2: if (!Mouse.isPressed(mouse)) Mouse.press(mouse); break;
         case 0: if (Mouse.isPressed(mouse)) Mouse.release(mouse);
+        default: break;
+    }
+}
+
+void dealLeftMouse(int state) {
+    switch (state) {
+        case 2: Mouse.click(); break;
+        case 3: {
+            Mouse.click();
+            delay(2);
+            Mouse.click(); break;
+        }
+        case 4: if (!Mouse.isPressed()) Mouse.press(); break;
+        case 0: if (Mouse.isPressed()) Mouse.release();
         default: break;
     }
 }
